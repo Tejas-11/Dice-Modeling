@@ -7,27 +7,34 @@ class RollImpl:
     _mode = None
     _dev = None
 
-    def __init__(self, data, format):
-        assert format in ('list', 'dict')
-        if format=='list':
-            self._min = data[0]
-            self._max = data[-1]
-            self._den = len(data)
-            self._data = [0] * (self._max - self._min + 1)
-            j = 0
-            self._data[j] = 1
-            for i in range(1, self._den):
-                if data[i]!=data[i - 1]:
-                    j += 1
-                    self._data[j] = 1
-                else:
-                    self._data[j] += 1
-        elif format=='dict':
-            data_key = sorted(set(data))
-            self._min = data_key[0]
-            self._max = data_key[-1]
-            self._den = sum(data.values())
-            self._data = [data[key] for key in data_key]
+    _min = None
+    _max = None
+    _den = None
+    _data = None
+
+    def __init__(self, *args):
+        if len(args)>0:
+            data, format = args[0], args[1]
+            assert format in ('list', 'dict')
+            if format=='list':
+                self._min = data[0]
+                self._max = data[-1]
+                self._den = len(data)
+                self._data = [0] * (self._max - self._min + 1)
+                j = 0
+                self._data[j] = 1
+                for i in range(1, self._den):
+                    if data[i]!=data[i - 1]:
+                        j += 1
+                        self._data[j] = 1
+                    else:
+                        self._data[j] += 1
+            elif format=='dict':
+                data_key = sorted(set(data))
+                self._min = data_key[0]
+                self._max = data_key[-1]
+                self._den = sum(data.values())
+                self._data = [data[key] for key in data_key]
 
     def __str__(self):
         data_rep = '\n'.join([f'  {self._min + ind}: {x}' for ind, x in enumerate(self._data)])
@@ -35,12 +42,19 @@ class RollImpl:
                 f'data:\n{data_rep}'
         return res
 
+    def __neg__(self):
+        result = self.__class__()
+        result._min, result._max = -self._max, -self._min
+        result._den = self._den
+        result._data = self._data[::-1]
+        return result
+
     def __add__(self, other):
         assert isinstance(other, int) or isinstance(other, self.__class__), \
             f"{other.__class__} not supported for this operation. Only int and {self.__class__.__name__} types supported."
         if isinstance(other, int):
             other = self.__class__([other], 'list')
-        result = self.__class__([1], 'list')
+        result = self.__class__()
         result._min = self._min + other._min
         result._max = self._max + other._max
         result._den = self._den * other._den
@@ -50,43 +64,48 @@ class RollImpl:
                 result._data[i + j] += x * y
         return result
 
-    def __iadd__(self, other):
-        assert isinstance(other, int) or isinstance(other, self.__class__), \
-            f"{other.__class__} not supported for this operation. Only int and {self.__class__.__name__} types supported."
-        if isinstance(other, int):
-            other = self.__class__([other], 'list')
-        _min = self._min + other._min
-        _max = self._max + other._max
-        _den = self._den * other._den
-        _data = [0] * (_max - _min + 1)
-        for i, x in enumerate(self._data):
-            for j, y in enumerate(other._data):
-                _data[i + j] += x * y
-        self._min, self._max = _min, _max
-        self._den = _den
-        self._data = _data
-        self.stat_reset()
-        return self
+    def __radd__(self, other):
+        return self.__add__(other)
 
-    def __imul__(self, other):
+    def __sub__(self, other):
+        return self.__add__(-other)
+
+    def __rsub__(self, other):
+        return (-self).__add__(other)
+
+    def __mul__(self, other):
         assert isinstance(other, int), f"{other.__class__} not supported for this operation. Only int type supported."
-        assert other > 0, "Integer must be greater than zero"
-        _min = self._min * other
-        _max = self._max * other
-        _den = self._den ** other
-        _data = [(0, x) for x in self._data]
-        _data = self._data
-        _new_data = [0] * (_max - _min + 1)
-        for _ in range(other):
-            _data = _new_data[:_new_data.find(0)]
-            for i, x in enumerate(_data):
-                for j, y in enumerate(self._data):
-                    _new_data[i+j] += x * y
-        s._min, self._max = _min, _max
-        self._den = _den
-        self._data = _new_data
-        self.stat_reset()
-        return self
+        if other<0:
+            other = -other
+            self = -self
+        sl = self._max - self._min + 1
+
+        result = self.__class__()
+        result._min = self._min * other
+        result._max = self._max * other
+        result._den = self._den ** other
+
+        rl = result._max - result._min + 1
+        result._data = self._data + [0] * (rl - sl)
+        rl = sl
+        for _ in range(other - 1):
+            nl = rl + sl - 1
+            for i in range(1, sl):
+                for j in range(i):
+                    result._data[nl-i] += self._data[sl-i+j] * result._data[rl-1-j]
+            for i in range(rl-sl):
+                result._data[rl-1-i] = self._data[0] * result._data[rl-1-i]
+                for j in range(1, sl):
+                    result._data[rl-1-i] += self._data[j] * result._data[rl-1-i-j]
+            for i in range(sl):
+                result._data[sl-i-1] = self._data[0] * result._data[sl-i-1]
+                for j in range(1, sl-i):
+                    result._data[sl-i-1] += self._data[j]*result._data[sl-i-1-j]
+            rl = nl
+        return result
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
 
     def __pow__(self, exp):
         assert isinstance(exp, int), f"{exp.__class__} not supported for this operation. Only int type supported."
@@ -108,29 +127,6 @@ class RollImpl:
         result._den = self._den ** exp
         result._data = _data
         return result
-
-    def __ipow__(self, exp):
-        assert isinstance(exp, int), f"{exp.__type__} not supported for this operation. Only int type supported."
-        if exp == 0:
-            self._data = [1]
-            self._den = 1
-            self._min = self._max = 1
-            self.stat_reset()
-            return self
-        fn = max if exp>0 else min
-        exp = abs(exp)
-        n = self._max - self._min + 1
-        _data = self._data
-        for _ in range(exp-1):
-            _new_data = [0] * n
-            for i in range(n):
-                for j in range(n):
-                    _new_data[fn(i, j)] += _data[i] * self._data[j]
-            _data = _new_data
-        self._den = self._den ** exp
-        self._data = _data
-        self.stat_reset()
-        return self
 
     @property
     def mean(self):
@@ -175,40 +171,3 @@ class RollImpl:
     def stat_print(self):
         print(f"mean: {self.mean}\nmedian: {self.median}")
         print(f"mode: {self.mode}\ndeviation: {self.dev}\n")
-    # also add a multiplication function to class
-    # multiplication function only for in multiplication not die to die multiplication
-
-a = RollImpl([i+1 for i in range(6)], 'list')
-print(a)
-a.stat_print()
-
-"""
-b = RollImpl([i+1 for i in range(8)], 'list')
-print(b)
-b.stat_print()
-
-c = a + b
-print(c)
-c.stat_print()
-
-c += 5
-print(c)
-c.stat_print()
-
-c = a ** -2
-print(c)
-c.stat_print()
-"""
-
-d = a ** 4
-print(d)
-d.stat_print()
-
-
-a **= 2
-print(a)
-a.stat_print()
-
-a **= 2
-print(a)
-a.stat_print()
